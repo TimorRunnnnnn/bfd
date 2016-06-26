@@ -36,11 +36,11 @@ static SessionNode_t *sessionListHead = NULL;
 static UINT16 currentPort = BFD_SEND_PORT_INIT;/*从49152开始往上增长,每个会话一个端口*/
 static UINT32 localDiscreaminator = 1;
 static HANDLE hSessionMutex;/*用来保护当前的port和discreaminator*/
-static BOOL BFDhasInitialized = FALSE;
+volatile static BOOL BFDhasInitialized = FALSE;
 
 /*用最长可能字符串大小创建数组*/
 static char bfdStateChangeString[255];
-static char *bfdDiagnosticReason[MAX_DIAGNOSTIC_NUMBER]{
+const static char *bfdDiagnosticReason[MAX_DIAGNOSTIC_NUMBER]{
 	"No Diagnostic",
 	"Control Detection Time Expired",
 	"Echo Function Failed",
@@ -50,7 +50,7 @@ static char *bfdDiagnosticReason[MAX_DIAGNOSTIC_NUMBER]{
 	"Concatenated Path Down",
 	"Administratively Down",
 };
-static char *month[12] = {
+const static char *month[12] = {
 	"Jan",
 	"Feb",
 	"Mar",
@@ -105,7 +105,7 @@ static void printBFDPackage(BFDPackage_t *package)
 	printf_s("\n\nBFD Info:");
 	printf_s("\nVersion: %d ", package->version);
 	printf_s("\nDiag: %d ", package->diagnostic);
-	printf_s("\nSession State: %d ", ((UINT32)(package->state)));
+	printf_s("\nSession State: %d ", ((UINT32)(package->sessionState)));
 }
 //SOCKET SocketS49152;
 static void WINAPI recivePackageHanldThread(void *arg)
@@ -133,7 +133,7 @@ static void WINAPI recivePackageHanldThread(void *arg)
 	{
 		return;
 	}
-	if (bfdPackage->yourDiscreaminator == 0 && (!(bfdPackage->state == SESSION_STATE_DOWN || bfdPackage->state == SESSION_STATE_ADMIN_DOWN)))
+	if (bfdPackage->yourDiscreaminator == 0 && (!(bfdPackage->sessionState == SESSION_STATE_DOWN || bfdPackage->sessionState == SESSION_STATE_ADMIN_DOWN)))
 	{
 		return;
 	}
@@ -233,6 +233,7 @@ static void WINAPI reciveThread(void *arg)
 		printf("\n绑定端口失败");
 		EXIT();
 	}
+	BFDhasInitialized = TRUE;
 	while (1)
 	{
 		reciveBytes = recvfrom(SocketSrv, recvBuf, BFD_IP_PACKAGE_SIZE, 0, (SOCKADDR*)&addrClient, &structLen);
@@ -304,7 +305,7 @@ static INT32 bfdSessionListDelete(SessionNode_t *node)
 	}
 	if (sessionListHead == node)
 	{
-		sessionListHead = NULL;
+		sessionListHead = sessionListHead->next;
 		return TRUE;
 	}
 
@@ -340,21 +341,27 @@ static void WINAPI bfdSessionHandleTread(void *arg)
 	}
 
 	UDPPackage_t udpPackage;
+	SessionNode_t node;
 	SessionArg_t *sessionArg = (SessionArg_t*)arg;
+
 	SOCKET bfdSendSocket = socket(AF_INET, SOCK_DGRAM, 0);
 	SOCKADDR_IN localAddr;
 	MSG msg;
+
+	INT32 adminDownCount = 0;
 	INT32 negotiatedTxTime = BFD_INIT_TIME;
 	//INT32 negotiatedRxTime_ms = BFD_INIT_TIME;
 	INT32 negotiatedCheckTime = BFD_INIT_TIME;
 	BOOL threadShouldNotExit = TRUE;
 	BOOL parameterHasChanged = FALSE;
 
+
 	memset(&msg, 0, sizeof(msg));
 	memset(&localAddr, 0, sizeof(localAddr));
 	memset(&udpPackage, 0, sizeof(udpPackage));
+	memset(&node, 0, sizeof(node));
 
-	SessionNode_t *session = (SessionNode_t *)malloc(sizeof(SessionNode_t));
+	SessionNode_t *session = &node;
 	if (session == NULL)
 	{
 		printf_s("\n线程数据分配失败");
@@ -384,6 +391,7 @@ static void WINAPI bfdSessionHandleTread(void *arg)
 
 	WaitForSingleObject(hSessionMutex, INFINITE);
 	session->localDiscreaminator = localDiscreaminator;
+	localDiscreaminator++;
 	localAddr.sin_port = htons(currentPort);
 	currentPort >= UINT16_MAX ? (currentPort = BFD_SEND_PORT_INIT) : currentPort++;
 	while (bind(bfdSendSocket, (SOCKADDR*)&localAddr, sizeof(localAddr)) != 0)
@@ -395,7 +403,7 @@ static void WINAPI bfdSessionHandleTread(void *arg)
 
 	udpPackage.BFDPackage.desiredMinTxInterval = BFD_INIT_TIME;
 	udpPackage.BFDPackage.requiredMinRXInterval = BFD_INIT_TIME;
-	udpPackage.BFDPackage.state = session->sessionState;
+	udpPackage.BFDPackage.sessionState = session->sessionState;
 	udpPackage.BFDPackage.myDiscreaminator = session->localDiscreaminator;
 	udpPackage.BFDPackage.detectMult = sessionArg->multiplier;
 	udpPackage.BFDPackage.yourDiscreaminator = 0x00;
@@ -404,10 +412,9 @@ static void WINAPI bfdSessionHandleTread(void *arg)
 	convertBFDPackageEndianToNet(&(udpPackage.BFDPackage));
 	bfdSessionListInsert(session);
 
-	time_t currentTime;
-	time(&currentTime);
+
 	struct tm timeinfo;
-	localtime_s(&timeinfo, &currentTime);
+	getCurrentTime(&timeinfo);
 	printf_s("\n*%s %d %d:%d:%d: bfd_session_created, neigh %s , handle:%d ", month[timeinfo.tm_mon], \
 		timeinfo.tm_mday, timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec, \
 		inet_ntoa(udpPackage.peerAddress.sin_addr), session->localDiscreaminator);
@@ -428,7 +435,7 @@ static void WINAPI bfdSessionHandleTread(void *arg)
 		{
 			session->sessionState = SESSION_STATE_DOWN;
 			convertBFDPackageEndianToHost(&(udpPackage.BFDPackage));
-			udpPackage.BFDPackage.state = SESSION_STATE_DOWN;
+			udpPackage.BFDPackage.sessionState = SESSION_STATE_DOWN;
 			udpPackage.BFDPackage.diagnostic = DIAGNOSTIC_CONTROL_DETECTION_TIME_EXPIRED;
 			udpPackage.BFDPackage.desiredMinTxInterval = BFD_INIT_TIME;
 			udpPackage.BFDPackage.requiredMinRXInterval = BFD_INIT_TIME;
@@ -466,9 +473,21 @@ static void WINAPI bfdSessionHandleTread(void *arg)
 			*/
 
 			BFDPackage_t *recvieBfdPackage = (BFDPackage_t*)msg.wParam;
-
+			if (session->sessionState==SESSION_STATE_ADMIN_DOWN)
+			{
+				if (recvieBfdPackage->sessionState==SESSION_STATE_DOWN&&recvieBfdPackage->diagnostic==DIAGNOSTIC_NEIGHBOR_SIGNALED_SESSION_DOWN)
+				{
+						adminDownCount--;
+						if (adminDownCount < 0)
+						{
+							threadShouldNotExit = FALSE;
+							continue;
+						}
+				}
+				continue;
+			}
 			/*如果两端都是UP，检查是否有Poll和Final*/
-			if ((recvieBfdPackage->state == SESSION_STATE_UP) && (session->sessionState == SESSION_STATE_UP))
+			if ((recvieBfdPackage->sessionState == SESSION_STATE_UP) && (session->sessionState == SESSION_STATE_UP))
 			{
 				session->remainRxTime = negotiatedCheckTime;
 				/*
@@ -513,17 +532,18 @@ static void WINAPI bfdSessionHandleTread(void *arg)
 					udpPackage.BFDPackage.flagFinal = RESET;/*主机和网络字节序不影响修改标志位*/
 				}
 			}
-			else if (recvieBfdPackage->state == SESSION_STATE_DOWN)
+			else if (recvieBfdPackage->sessionState == SESSION_STATE_DOWN)
 			{
 				convertBFDPackageEndianToHost(&(udpPackage.BFDPackage));
 				/*如果收到一个远端报文为down,状态变换到INIT*/
 				session->sessionState = SESSION_STATE_INIT;
-				udpPackage.BFDPackage.state = session->sessionState;
+				session->remainTxTime = BFD_INIT_TIME;
+				udpPackage.BFDPackage.sessionState = session->sessionState;
 				udpPackage.BFDPackage.yourDiscreaminator = recvieBfdPackage->myDiscreaminator;
 				convertBFDPackageEndianToNet(&(udpPackage.BFDPackage));
 				sendto(bfdSendSocket, (char *)&(udpPackage.BFDPackage), BFD_PACKAGE_LENTH, 0, (SOCKADDR *)&(udpPackage.peerAddress), sizeof(udpPackage.peerAddress));
 			}
-			else if ((recvieBfdPackage->state == SESSION_STATE_INIT) || (recvieBfdPackage->state == SESSION_STATE_UP&&session->sessionState == SESSION_STATE_INIT))
+			else if ((recvieBfdPackage->sessionState == SESSION_STATE_INIT) || (recvieBfdPackage->sessionState == SESSION_STATE_UP&&session->sessionState == SESSION_STATE_INIT))
 			{
 				convertBFDPackageEndianToHost(&(udpPackage.BFDPackage));
 				/*如果收到一个远端为INIT的报文,则直接迁移到UP*/
@@ -542,10 +562,11 @@ static void WINAPI bfdSessionHandleTread(void *arg)
 				parameterHasChanged = TRUE;
 				udpPackage.BFDPackage.desiredMinTxInterval = session->rawTxTime;
 				udpPackage.BFDPackage.requiredMinRXInterval = session->rawRxTime;
-				udpPackage.BFDPackage.state = SESSION_STATE_UP;
+				udpPackage.BFDPackage.sessionState = SESSION_STATE_UP;
 				udpPackage.BFDPackage.diagnostic = DIAGNOSTIC_NO_DIAGNOSTIC;
 
 				session->sessionState = SESSION_STATE_UP;
+				session->remoteDiscreaminator = udpPackage.BFDPackage.yourDiscreaminator;
 				negotiatedTxTime = MAX(session->rawTxTime, recvieBfdPackage->requiredMinRXInterval);
 				negotiatedCheckTime = MAX(session->remainRxTime, recvieBfdPackage->desiredMinTxInterval)*recvieBfdPackage->detectMult;/*用对端的检测倍数*/
 				session->remainRxTime = negotiatedCheckTime;
@@ -567,14 +588,33 @@ static void WINAPI bfdSessionHandleTread(void *arg)
 				sendto(bfdSendSocket, (char *)&(udpPackage.BFDPackage), BFD_PACKAGE_LENTH, 0, (SOCKADDR *)&(udpPackage.peerAddress), sizeof(udpPackage.peerAddress));
 				udpPackage.BFDPackage.flagFinal = RESET;
 			}
-			else if (recvieBfdPackage->state == SESSION_STATE_ADMIN_DOWN)
+			else if (recvieBfdPackage->sessionState == SESSION_STATE_ADMIN_DOWN)
 			{
 				convertBFDPackageEndianToHost(&udpPackage.BFDPackage);
 				if (session->sessionState==SESSION_STATE_UP)
 				{
 					session->sessionState = SESSION_STATE_DOWN;
-					udpPackage.BFDPackage.state = SESSION_STATE_DOWN;
+					session->remainTxTime = BFD_INIT_TIME;
+					session->remainRxTime = BFD_INIT_TIME;
+
+					udpPackage.BFDPackage.sessionState = SESSION_STATE_DOWN;
 					udpPackage.BFDPackage.diagnostic = DIAGNOSTIC_NEIGHBOR_SIGNALED_SESSION_DOWN;
+					udpPackage.BFDPackage.requiredMinRXInterval = BFD_INIT_TIME;
+					udpPackage.BFDPackage.desiredMinTxInterval = BFD_INIT_TIME;
+					udpPackage.BFDPackage.yourDiscreaminator = 0;
+					negotiatedCheckTime = BFD_INIT_TIME;
+					negotiatedTxTime = BFD_INIT_TIME;
+					
+					char destIP[16];
+					memset(destIP, '\0', sizeof(destIP));
+					strcpy_s(destIP, inet_ntoa(session->destinationIP));
+					sprintf_s(bfdStateChangeString, BFD_STR_DOWN, month[timeinfo.tm_mon], \
+						timeinfo.tm_mday, timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec, destIP, \
+						inet_ntoa(session->localIP), session->localDiscreaminator, bfdDiagnosticReason[udpPackage.BFDPackage.diagnostic]);
+					printf_s("%s", bfdStateChangeString);
+					convertBFDPackageEndianToNet(&udpPackage.BFDPackage);
+					sendto(bfdSendSocket, (char *)&(udpPackage.BFDPackage), BFD_PACKAGE_LENTH, 0, (SOCKADDR *)&(udpPackage.peerAddress), sizeof(udpPackage.peerAddress));
+					convertBFDPackageEndianToHost(&udpPackage.BFDPackage);
 				}
 				convertBFDPackageEndianToNet(&udpPackage.BFDPackage);
 			}
@@ -595,7 +635,7 @@ static void WINAPI bfdSessionHandleTread(void *arg)
 			udpPackage.BFDPackage.detectMult = updata->multiplier;
 
 			/*虽然RFC5880上说修改检测倍数的时候the use of a Poll Sequence is not necessary
-			实际上cisco在没有POLL的情况下修改检测倍数，cisco不会更新检测时间
+			实际上cisco系统在没有POLL的情况下修改检测倍数，不会更新检测时间
 			*/
 			if (session->sessionState == SESSION_STATE_UP)
 			{
@@ -618,6 +658,13 @@ static void WINAPI bfdSessionHandleTread(void *arg)
 				sendto(bfdSendSocket, (char *)&(udpPackage.BFDPackage), BFD_PACKAGE_LENTH, 0, (SOCKADDR *)&(udpPackage.peerAddress), sizeof(udpPackage.peerAddress));
 			}
 
+			/*如果在admin_down状态下重新创建新会话，则将会话状态更改为down*/
+			if (session->sessionState==SESSION_STATE_ADMIN_DOWN)
+			{
+				udpPackage.BFDPackage.diagnostic = DIAGNOSTIC_NO_DIAGNOSTIC;
+				udpPackage.BFDPackage.sessionState = SESSION_STATE_DOWN;
+				sendto(bfdSendSocket, (char *)&(udpPackage.BFDPackage), BFD_PACKAGE_LENTH, 0, (SOCKADDR *)&(udpPackage.peerAddress), sizeof(udpPackage.peerAddress));
+			}
 			struct tm timeinfo;
 			getCurrentTime(&timeinfo);
 			printf_s("\n*%s %d %d:%d:%d: bfd config apply.", month[timeinfo.tm_mon], \
@@ -625,12 +672,29 @@ static void WINAPI bfdSessionHandleTread(void *arg)
 		}
 		else if (msg.message == MESSAGE_TYPE_SESSION_CANCEL)
 		{
-			threadShouldNotExit = FALSE;
+			//threadShouldNotExit = FALSE;
+			convertBFDPackageEndianToHost(&udpPackage.BFDPackage);
+			session->sessionState = SESSION_STATE_ADMIN_DOWN;
+			session->remainRxTime = BFD_INIT_TIME;
+			session->remainTxTime = BFD_INIT_TIME;
+			negotiatedTxTime = BFD_INIT_TIME;
+			negotiatedCheckTime = BFD_INIT_TIME;
+			udpPackage.BFDPackage.sessionState = SESSION_STATE_ADMIN_DOWN;
+			udpPackage.BFDPackage.diagnostic = DIAGNOSTIC_ADMINISTRATIVELY_DOWN;
+			udpPackage.BFDPackage.requiredMinRXInterval = BFD_INIT_TIME;
+			udpPackage.BFDPackage.desiredMinTxInterval = BFD_INIT_TIME;
+			adminDownCount = 2;
+			convertBFDPackageEndianToNet(&udpPackage.BFDPackage);
+			sendto(bfdSendSocket, (char *)&(udpPackage.BFDPackage), BFD_PACKAGE_LENTH, 0, (SOCKADDR *)&(udpPackage.peerAddress), sizeof(udpPackage.peerAddress));
+			getCurrentTime(&timeinfo);
+			printf_s("\n*%s %d %d:%d:%d: bfd_session_destroyed, neigh %s , handle:%d ", month[timeinfo.tm_mon], \
+				timeinfo.tm_mday, timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec, \
+				inet_ntoa(udpPackage.peerAddress.sin_addr), session->localDiscreaminator);
 			continue;
 		}
 	}
 	bfdSessionListDelete(session);
-	free(session);
+	//free(session); 
 }
 
 __declspec(dllexport) INT32 bfdCreatBFDSession(char *peerip_str, char *reciveInterval_str, char *transmitInterval_str, char *multiplier_str)
@@ -641,9 +705,8 @@ __declspec(dllexport) INT32 bfdCreatBFDSession(char *peerip_str, char *reciveInt
 	}
 	if (BFDhasInitialized == FALSE)
 	{
-		HANDLE tem = bfdInit();
-		CloseHandle(tem);
-		BFDhasInitialized = TRUE;
+		printf_s("\nBFD尚未初始化");
+		EXIT();
 	}
 
 	IN_ADDR destinationIP;
@@ -701,8 +764,21 @@ __declspec(dllexport) INT32 bfdCreatBFDSession(char *peerip_str, char *reciveInt
 	}
 	return TRUE;
 }
-__declspec(dllexport)INT32 bfddeleteBFDSession(char *peerip_srt)
+__declspec(dllexport)INT32 bfdDeleteBFDSession(char *peerip_str)
 {
+	SessionNode_t *sessionWalk = sessionListHead;
+	IN_ADDR destinationIP;
+	destinationIP.S_un.S_addr = inet_addr(peerip_str);
+
+	while (sessionWalk != NULL)
+	{
+		if (memcmp(&(sessionWalk->destinationIP), &(destinationIP), sizeof(IN_ADDR)) == 0)
+		{
+			PostThreadMessage(sessionWalk->threadID, MESSAGE_TYPE_SESSION_CANCEL, NULL, NULL);
+			return TRUE;
+		}
+		sessionWalk = sessionWalk->next;
+	}
 	return TRUE;
 }
 
@@ -740,5 +816,14 @@ __declspec(dllexport) HANDLE bfdInit(void)
 		printf("\nCreate recive thread failed!");
 		EXIT();
 	}
+	while (BFDhasInitialized==FALSE)
+	{
+
+	}
 	return handle;
+}
+
+__declspec(dllexport) SessionNode_t* bfdGetSessionList(void)
+{
+	return sessionListHead;
 }

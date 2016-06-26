@@ -203,13 +203,13 @@ int cliShowHelp(struct cli_def *cli, struct cli_command *c)
 
 	for (p = c; p; p = p->next)
 	{
-		if (p->command && p->callback)
+		if (p->command)
 		{
 			printf_s("\n  %-20s %s", cliCommandName(cli, p), (p->help != NULL ? p->help : ""));
 		}
 
-		if (p->children)
-			cliShowHelp(cli, p->children);
+// 		if (p->children)
+// 			cliShowHelp(cli, p->children);
 	}
 
 	return CLI_OK;

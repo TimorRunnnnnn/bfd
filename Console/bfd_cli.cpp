@@ -1,8 +1,11 @@
+#pragma comment(lib, "Ws2_32.lib")
 #include "bfd_cli.h"
 #include "windows.h"
 #include "libcli.h"
 #include "bfd.h"
 #include "common.h"
+#include "console.h"
+#include "winsock.h"
 
 static char *inputReceiveInterval;
 static char *inputTransmitInterval;
@@ -155,7 +158,7 @@ INT32 cliBfdCreateSession(struct cli_def *cli, const char *command, char *argv[]
 	if (inputMult == NULL || inputTransmitInterval == NULL || inputReceiveInterval == NULL \
 		|| checkIPAddress(*argv) != CLI_ARGUMENT_STATE_TRUE)
 	{
-		printf_s("\nCreate BFD Session Falied : Argument Error.");
+		printf_s("\nCreate BFD Session Failed : Argument Error.");
 	}
 	else
 	{
@@ -166,4 +169,43 @@ INT32 cliBfdCreateSession(struct cli_def *cli, const char *command, char *argv[]
 	free_z(inputMult);
 	return ret;
 }
+INT32 cliBfdDeleteSession(struct cli_def *cli, const char *command, char *argv[], int argc)
+{
+	if (checkIPAddress(*argv)!=CLI_ARGUMENT_STATE_TRUE)
+	{
+		printf_s("\nDelete BFD Session Failed : Argument Error.");
+	}
+	else
+	{
+		bfdDeleteBFDSession(*argv);
+	}
+	return TRUE;
+}
 
+INT32 cliBfdShowSession(struct cli_def *cli, const char *command, char *argv[], int argc)
+{
+	const char *state[4] = {
+		"ADMINDOWN",
+		"DOWN",
+		"INIT",
+		"UP",
+	};
+	printf_s("\n\nBFD Sessions");
+	SessionNode_t *walk = bfdGetSessionList();
+	if (walk!=NULL)
+	{
+		printf_s("\nNeighAddr			LD/RD			State");
+	}
+	char str[INPUT_BUFFER_MAX_CHAR];
+	memset(str, '\0', sizeof(str));
+	while (walk != NULL)
+	{
+		sprintf_s(str, "\n%s			%d/%d			%s", inet_ntoa(walk->destinationIP), walk->localDiscreaminator, walk->remoteDiscreaminator, state[walk->sessionState]);
+		printf_s("%s", str);
+		walk = walk->next;
+	}
+	printf_s("\n");
+
+
+	return TRUE;
+}

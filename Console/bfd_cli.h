@@ -14,5 +14,6 @@ INT32 cliBfdSetMultiplier(struct cli_def *cli, const char *command, char *argv[]
 INT32 cliBfdSetTxInterval(struct cli_def *cli, const char *command, char *argv[], int argc);
 INT32 cliBfdSetRxInterval(struct cli_def *cli, const char *command, char *argv[], int argc);
 INT32 cliBfdCreateSession(struct cli_def *cli, const char *command, char *argv[], int argc);
-
+INT32 cliBfdDeleteSession(struct cli_def *cli, const char *command, char *argv[], int argc);
+INT32 cliBfdShowSession(struct cli_def *cli, const char *command, char *argv[], int argc);
 #endif

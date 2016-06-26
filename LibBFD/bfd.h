@@ -43,7 +43,23 @@ enum BFDDiag
 	DIAGNOSTIC_ADMINISTRATIVELY_DOWN,
 	DIAGNOSTIC_REVERSE_CONCATENATED_PATH_DOWN,
 };
-
+/*
+0                   1                   2                   3
+0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++ -+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Vers | Diag | Sta | P | F | C | A | D | M | Detect Mult | Length |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| My Discriminator |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Your Discriminator |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Desired Min TX Interval |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Required Min RX Interval |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Required Min Echo RX Interval |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+*/
 typedef struct _bfdpackage
 {
 	BFDDiag diagnostic : 5;/*诊断*/
@@ -55,7 +71,7 @@ UINT32:1;/*保留*/
 	UINT32 flagControlPlaneIndependent : 1;
 	UINT32 flagFinal : 1;
 	UINT32 flagPoll : 1;
-	UINT32 state : 2;/*状态*/
+	UINT32 sessionState : 2;/*状态*/
 
 	UINT32 detectMult : 8;/*检测倍数*/
 	UINT32 length : 8;/*报文长度*/
@@ -87,6 +103,7 @@ typedef struct _neighbour_node
 	IN_ADDR destinationIP;
 	IN_ADDR localIP;
 	INT32 localDiscreaminator;
+	INT32 remoteDiscreaminator;
 	INT32 rawTxTime;/*输入的发送时间*/
 	INT32 rawRxTime;/*输入的接收时间*/
 	INT32 remoteTxTime;
@@ -95,11 +112,13 @@ typedef struct _neighbour_node
 	INT32 remainTxTime;/*剩余的时间*/
 	INT32 remainRxTime;
 	DWORD threadID;/*线程ID*/
-	BFDSessionState sessionState; /*把这个改为指针*/
+	BFDSessionState sessionState;
 	struct _neighbour_node *next;
 }SessionNode_t;
 
+__declspec(dllexport)INT32 bfdDeleteBFDSession(char *peerip_str);
 __declspec(dllexport) INT32 socketInit(void);
 __declspec(dllexport) HANDLE bfdInit(void);
 __declspec(dllexport) INT32 bfdCreatBFDSession(char *peerip_str, char *minReciveInterval_str, char *minTransmitInterval_str, char *multiplier_str);
+__declspec(dllexport) SessionNode_t* bfdGetSessionList(void);
 #endif
