@@ -1,8 +1,27 @@
+/*****************************************************************
+* Copyright (C) 2016 Maipu Communication Technology Co.,Ltd.*
+******************************************************************
+* bfd_cli.cpp
+*
+* DESCRIPTION:
+*	利用libcli.dll提供的接口，与libbfd.dll提供的接口提供映射
+* AUTHOR:
+*	谭帮成
+* CREATED DATE:
+*	2016 年 5 月 15 日
+* REVISION:
+*	1.0
+*
+* MODIFICATION HISTORY
+* --------------------
+* $Log:$
+*
+*****************************************************************/
 #pragma comment(lib, "Ws2_32.lib")
 #include "bfd_cli.h"
 #include "windows.h"
 #include "libcli.h"
-#include "bfd.h"
+#include "libbfd.h"
 #include "common.h"
 #include "console.h"
 #include "winsock.h"
@@ -11,6 +30,19 @@ static char *inputReceiveInterval;
 static char *inputTransmitInterval;
 static char *inputMult;
 
+
+/*****************************************************************
+* DESCRIPTION:
+*	检查字符串是否为IP地址
+* INPUTS:
+*	ip - 需要用来检查的字符串
+* OUTPUTS:
+*	none
+* RETURNS:
+*	CLI_ARGUMENT_STATE_FALSE - 不是IP地址
+*	CLI_ARGUMENT_STATE_INCOMPLETE - 是IP地址，但不完整
+*	CLI_ARGUMENT_STATE_TRUE - 是IP地址
+*****************************************************************/
 static CLI_ARGUMENT_STATE checkIPAddress(char *ip)
 {
 	INT32 len = strlen(ip);
@@ -80,6 +112,18 @@ static CLI_ARGUMENT_STATE checkIPAddress(char *ip)
 	return CLI_ARGUMENT_STATE_TRUE;
 }
 
+
+/*****************************************************************
+* DESCRIPTION:
+*	检查字符串是否为数字
+* INPUTS:
+*	num - 需要用来检查的字符串
+* OUTPUTS:
+*	none
+* RETURNS:
+*	CLI_ARGUMENT_STATE_FALSE - 不是数字
+*	CLI_ARGUMENT_STATE_TRUE - 是数字
+*****************************************************************/
 static CLI_ARGUMENT_STATE checkNumber(char *num)
 {
 	INT32 len = strlen(num);
@@ -93,24 +137,37 @@ static CLI_ARGUMENT_STATE checkNumber(char *num)
 	return CLI_ARGUMENT_STATE_TRUE;
 }
 
-CLI_ARGUMENT_STATE checkArgument(cli_command *c, char *cmd)
+
+/*****************************************************************
+* DESCRIPTION:
+*	检查命令的参数
+* INPUTS:
+*	c - 需要检查参数的命令
+*	arg - 参数的字符串格式
+* OUTPUTS:
+*	none
+* RETURNS:
+*	CLI_ARGUMENT_STATE_FALSE - 参数不符合
+*	CLI_ARGUMENT_STATE_TRUE - 参数符合
+*****************************************************************/
+CLI_ARGUMENT_STATE checkArgument(cli_command *c, char *arg)
 {
 	CLI_ARGUMENT_STATE ret = CLI_ARGUMENT_STATE_TRUE;
 	if (c->argType==CLI_ARGUMENT_TYPE_NONE)
 	{
 		return CLI_ARGUMENT_STATE_TRUE;
 	}
-	if (cmd == NULL)
+	if (arg == NULL)
 	{
 		return CLI_ARGUMENT_STATE_FALSE;
 	}
 	if (c->argType == CLI_ARGUMENT_TYPE_IP)
 	{
-		ret = checkIPAddress(cmd);
+		ret = checkIPAddress(arg);
 	}
 	else if (c->argType == CLI_ARGUMENT_TYPE_NUMBER)
 	{
-		ret = checkNumber(cmd);
+		ret = checkNumber(arg);
 	}
 	else if (c->argType == CLI_ARGUMENT_TYPE_STRING)
 	{
@@ -120,6 +177,19 @@ CLI_ARGUMENT_STATE checkArgument(cli_command *c, char *cmd)
 	return ret;
 }
 
+
+/*****************************************************************
+* DESCRIPTION:
+*	将字符串格式的参数赋给BFD
+* INPUTS:
+*	input - 源参数
+*	arg - 目的参数指针
+* OUTPUTS:
+*	none
+* RETURNS:
+*	FALSE - 失败
+*	TRUE - 成功
+*****************************************************************/
 static BOOL setArg(char **arg, char *input)
 {
 	if (input == NULL)
@@ -140,18 +210,78 @@ static BOOL setArg(char **arg, char *input)
 	return TRUE;
 }
 
+
+/*****************************************************************
+* DESCRIPTION:
+*	设置BFD会话的检测倍数，作为命令行接口的回调函数使用
+* INPUTS:
+*	cli - 命令行接口
+*	command - 命令的字符串格式
+*	argv[] - 参数列表
+*	argc - 参数的个数
+* OUTPUTS:
+*	none
+* RETURNS:
+*	FALSE - 失败
+*	TRUE - 成功
+*****************************************************************/
 INT32 cliBfdSetMultiplier(struct cli_def *cli, const char *command, char *argv[], int argc)
 {
 	return setArg(&inputMult, *argv);
 }
+
+/*****************************************************************
+* DESCRIPTION:
+*	设置BFD会话的发送间隔，作为命令行接口的回调函数使用
+* INPUTS:
+*	cli - 命令行接口
+*	command - 命令的字符串格式
+*	argv[] - 参数列表
+*	argc - 参数的个数
+* OUTPUTS:
+*	none
+* RETURNS:
+*	FALSE - 失败
+*	TRUE - 成功
+*****************************************************************/
 INT32 cliBfdSetTxInterval(struct cli_def *cli, const char *command, char *argv[], int argc)
 {
 	return setArg(&inputTransmitInterval, *argv);
 }
+
+/*****************************************************************
+* DESCRIPTION:
+*	设置BFD会话的接收间隔，作为命令行接口的回调函数使用
+* INPUTS:
+*	cli - 命令行接口
+*	command - 命令的字符串格式
+*	argv[] - 参数列表
+*	argc - 参数的个数
+* OUTPUTS:
+*	none
+* RETURNS:
+*	FALSE - 失败
+*	TRUE - 成功
+*****************************************************************/
 INT32 cliBfdSetRxInterval(struct cli_def *cli, const char *command, char *argv[], int argc)
 {
 	return setArg(&inputReceiveInterval, *argv);
 }
+
+/*****************************************************************
+* DESCRIPTION:
+*	创建一个BFD会话，作为命令行接口的 bfd session 回调函数使用
+* INPUTS:
+*	cli - 命令行接口
+*	command - 命令的字符串格式
+*	argv[] - 参数列表
+*	argc - 参数的个数
+* OUTPUTS:
+*	none
+* RETURNS:
+*	FALSE - 失败
+*	TRUE - 成功
+*****************************************************************/
 INT32 cliBfdCreateSession(struct cli_def *cli, const char *command, char *argv[], int argc)
 {
 	INT32 ret = FALSE;
@@ -169,6 +299,21 @@ INT32 cliBfdCreateSession(struct cli_def *cli, const char *command, char *argv[]
 	free_z(inputMult);
 	return ret;
 }
+
+/*****************************************************************
+* DESCRIPTION:
+*	删除一个BFD会话，作为命令行接口的 no bfd session 回调函数使用
+* INPUTS:
+*	cli - 命令行接口
+*	command - 命令的字符串格式
+*	argv[] - 参数列表
+*	argc - 参数的个数
+* OUTPUTS:
+*	none
+* RETURNS:
+*	FALSE - 失败
+*	TRUE - 成功
+*****************************************************************/
 INT32 cliBfdDeleteSession(struct cli_def *cli, const char *command, char *argv[], int argc)
 {
 	if (checkIPAddress(*argv)!=CLI_ARGUMENT_STATE_TRUE)
@@ -182,6 +327,20 @@ INT32 cliBfdDeleteSession(struct cli_def *cli, const char *command, char *argv[]
 	return TRUE;
 }
 
+/*****************************************************************
+* DESCRIPTION:
+*	显示现有的BFD会话，作为命令行接口的 show bfd session 回调函数使用
+* INPUTS:
+*	cli - 命令行接口
+*	command - 命令的字符串格式
+*	argv[] - 参数列表
+*	argc - 参数的个数
+* OUTPUTS:
+*	none
+* RETURNS:
+*	FALSE - 失败
+*	TRUE - 成功
+*****************************************************************/
 INT32 cliBfdShowSession(struct cli_def *cli, const char *command, char *argv[], int argc)
 {
 	const char *state[4] = {

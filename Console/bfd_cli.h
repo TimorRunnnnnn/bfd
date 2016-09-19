@@ -1,7 +1,27 @@
+/*****************************************************************
+* Copyright (C) 2016 Maipu Communication Technology Co.,Ltd.*
+******************************************************************
+* bfd_cli.h
+*
+* DESCRIPTION:
+*	定义了基于cli的bfd的接口。
+* AUTHOR:
+*	谭帮成
+* CREATED DATE:
+*	2016 年 5 月 15 日
+* REVISION:
+*	1.0
+*
+* MODIFICATION HISTORY
+* --------------------
+* $Log:$
+*
+*****************************************************************/
 #ifndef _BFD_CLI_H_
 #define _BFD_CLI_H_
-#include "libcli.h"
+
 #include "windows.h"
+
 enum CLI_ARGUMENT_STATE
 {
 	CLI_ARGUMENT_STATE_FALSE=0,
@@ -9,7 +29,7 @@ enum CLI_ARGUMENT_STATE
 	CLI_ARGUMENT_STATE_INCOMPLETE,
 };
 
-CLI_ARGUMENT_STATE checkArgument(cli_command *c, char *cmd);
+
 INT32 cliBfdSetMultiplier(struct cli_def *cli, const char *command, char *argv[], int argc);
 INT32 cliBfdSetTxInterval(struct cli_def *cli, const char *command, char *argv[], int argc);
 INT32 cliBfdSetRxInterval(struct cli_def *cli, const char *command, char *argv[], int argc);

@@ -1,97 +1,48 @@
+/*****************************************************************
+* Copyright (C) 2016 Maipu Communication Technology Co.,Ltd.*
+******************************************************************
+* console.cpp
+*
+* DESCRIPTION:
+*	实现了用户界面，响应键盘按键。
+* AUTHOR:
+*	谭帮成
+* CREATED DATE:
+*	2016 年 5 月 15 日
+* REVISION:
+*	1.0
+*
+* MODIFICATION HISTORY
+* --------------------
+* $Log:$
+*
+*****************************************************************/
 #include "stdio.h"
 #include "windows.h"
 #include "conio.h"
 #include "console.h"
 #include "libcli.h"
 #include "bfd_cli.h"
-#include "bfd.h"
+#include "libbfd.h"
 #include "common.h"
 
-static CommandNode_t *tail;
 
-void Key_Left(void)
-{
-	HANDLE handle_out = GetStdHandle(STD_OUTPUT_HANDLE);
-	CONSOLE_SCREEN_BUFFER_INFO bInfo;
-	COORD coursePos;
+static void Key_Left(void);
+static void Key_Right(INT32 inputBufferTail);
+static void refreshLine(char *buffer, INT32 cursorPos);
+static void newLine(char *buf, INT32 *tail);
+static INT32 socketInit(void);
 
-	GetConsoleScreenBufferInfo(handle_out, &bInfo);
-	coursePos.X = ((bInfo.dwCursorPosition.X - 1) < 1 ? 1 : (bInfo.dwCursorPosition.X - 1));
-	coursePos.Y = bInfo.dwCursorPosition.Y;
-	SetConsoleCursorPosition(handle_out, coursePos);
-}
-
-void Key_Right(INT32 inputBufferTail)
-{
-	HANDLE handle_out = GetStdHandle(STD_OUTPUT_HANDLE);
-	CONSOLE_SCREEN_BUFFER_INFO bInfo;
-	COORD coursePos;
-
-	GetConsoleScreenBufferInfo(handle_out, &bInfo);
-	coursePos.X = (bInfo.dwCursorPosition.X + 1) > inputBufferTail ? inputBufferTail : (bInfo.dwCursorPosition.X + 1);
-	coursePos.Y = bInfo.dwCursorPosition.Y;
-	SetConsoleCursorPosition(handle_out, coursePos);
-}
-
-
-/*刷新一整行,把光标置位到cursorpos*/
-void refreshLine(char *buffer, INT32 cursorPos)
-{
-	COORD pos, oldpos;
-	CONSOLE_CURSOR_INFO cci;         //定义光标信息结构体  
-	CONSOLE_SCREEN_BUFFER_INFO bInfo;
-	HANDLE handle_out = GetStdHandle(STD_OUTPUT_HANDLE);
-
-	GetConsoleScreenBufferInfo(handle_out, &bInfo);
-	oldpos.X = cursorPos;
-	oldpos.Y = bInfo.dwCursorPosition.Y;
-	pos.X = 0;
-	pos.Y = bInfo.dwCursorPosition.Y;
-	cci.dwSize = CURSOR_SIZE;
-	cci.bVisible = FALSE;/*先关闭光标,防止闪烁*/
-	SetConsoleCursorInfo(handle_out, &cci);
-	SetConsoleCursorPosition(handle_out, pos);
-	for (INT32 i = 0; i < INPUT_BUFFER_MAX_CHAR;i++)
-	{
-		/*清空整行*/
-		printf_s(" ");
-	}
-	SetConsoleCursorPosition(handle_out, pos);
-	puts(buffer);
-	cci.bVisible = TRUE;
-	SetConsoleCursorPosition(handle_out, oldpos);
-	SetConsoleCursorInfo(handle_out, &cci);
-}
-
-void commandParse(char *command)
-{
-	while (*command!='\0')
-	{
-		
-	}
-}
-
-void newLine(char *buf,INT32 *tail)
-{
-	memset(buf, '\0', INPUT_BUFFER_MAX_CHAR);
-	buf[0] = '>';
-	*tail = 1;
-	printf_s("\n>");
-}
-
-
-
-
-INT32 test(struct cli_def *cli, const char *command, char *argv[], int argc)
-{
-	printf_s("\narg:\n");
-	for (INT32 i = 0; i < argc; i++)
-	{
-		printf_s("%s ", argv[i]);
-	}
-	return 0;
-}
-
+/*****************************************************************
+* DESCRIPTION:
+*	初始化整个系统，注册一些列默认的命令，然后只用getch循环获取键盘输入
+* INPUTS:
+*	none
+* OUTPUTS:
+*	none
+* RETURNS:
+*	进程结束代码
+*****************************************************************/
 int main(void)
 {
 	char inputBuffer[INPUT_BUFFER_MAX_CHAR];
@@ -134,8 +85,6 @@ int main(void)
 	cliRegisterCommand(cli, com, "session", cliBfdShowSession, "BFD protocol info", CLI_ARGUMENT_TYPE_NONE, NULL);
 	cliBuildShortest(cli, cli->commands);
 
-	/*2016年5月26日 01:23:15*/
-	/*应该让每个命令自己创建 补全的函数*/
 	memset(inputBuffer, '\0', sizeof(inputBuffer));
 	inputBuffer[0] = '>';
 	printf_s(">");
@@ -147,9 +96,9 @@ int main(void)
 	char lastChar = 0;
 
 	/*测试用*/
-	char test[] = "bfd s 192.168.80.100 m 500 m 500 m 40";
-	cliRunCommand(cli, test);
-
+	//char test[] = "bfd s 192.168.80.100 m 500 m 500 m 40";
+	//cliRunCommand(cli, test);
+	
 	while (1)
 	{
 		lastChar = c;
@@ -256,6 +205,7 @@ int main(void)
 		}
 		else if (c == '?')
 		{
+			/* ? 显示帮助*/
 			inputBuffer[inputBufferTail] = c;
 			printf_s("%c", c);
 			cliRunCommand(cli, &inputBuffer[1]);
@@ -331,3 +281,137 @@ int main(void)
 		}
 	}
 }
+
+/*****************************************************************
+* DESCRIPTION:
+*	按下左键的时候，光标向左移动一位
+* INPUTS:
+*	none
+* OUTPUTS:
+*	none
+* RETURNS:
+*	none
+*****************************************************************/
+static void Key_Left(void)
+{
+	HANDLE handle_out = GetStdHandle(STD_OUTPUT_HANDLE);
+	CONSOLE_SCREEN_BUFFER_INFO bInfo;
+	COORD coursePos;
+
+	GetConsoleScreenBufferInfo(handle_out, &bInfo);
+	coursePos.X = ((bInfo.dwCursorPosition.X - 1) < 1 ? 1 : (bInfo.dwCursorPosition.X - 1));
+	coursePos.Y = bInfo.dwCursorPosition.Y;
+	SetConsoleCursorPosition(handle_out, coursePos);
+}
+
+/*****************************************************************
+* DESCRIPTION:
+*	按下左键的时候，光标向右移动一位
+* INPUTS:
+*	none
+* OUTPUTS:
+*	none
+* RETURNS:
+*	none
+*****************************************************************/
+static void Key_Right(INT32 inputBufferTail)
+{
+	HANDLE handle_out = GetStdHandle(STD_OUTPUT_HANDLE);
+	CONSOLE_SCREEN_BUFFER_INFO bInfo;
+	COORD coursePos;
+
+	GetConsoleScreenBufferInfo(handle_out, &bInfo);
+	coursePos.X = (bInfo.dwCursorPosition.X + 1) > inputBufferTail ? inputBufferTail : (bInfo.dwCursorPosition.X + 1);
+	coursePos.Y = bInfo.dwCursorPosition.Y;
+	SetConsoleCursorPosition(handle_out, coursePos);
+}
+
+
+/*****************************************************************
+* DESCRIPTION:
+*	刷新一整行,把光标置位到cursorpos
+* INPUTS:
+*	buffer - 输入缓冲区
+*	cursorPos - 移动到的光标位置
+* OUTPUTS:
+*	none
+* RETURNS:
+*	none
+*****************************************************************/
+static void refreshLine(char *buffer, INT32 cursorPos)
+{
+	COORD pos, oldpos;
+	CONSOLE_CURSOR_INFO cci;         //定义光标信息结构体  
+	CONSOLE_SCREEN_BUFFER_INFO bInfo;
+	HANDLE handle_out = GetStdHandle(STD_OUTPUT_HANDLE);
+
+	GetConsoleScreenBufferInfo(handle_out, &bInfo);
+	oldpos.X = cursorPos;
+	oldpos.Y = bInfo.dwCursorPosition.Y;
+	pos.X = 0;
+	pos.Y = bInfo.dwCursorPosition.Y;
+	cci.dwSize = CURSOR_SIZE;
+	cci.bVisible = FALSE;/*先关闭光标,防止闪烁*/
+	SetConsoleCursorInfo(handle_out, &cci);
+	SetConsoleCursorPosition(handle_out, pos);
+	for (INT32 i = 0; i < INPUT_BUFFER_MAX_CHAR;i++)
+	{
+		/*清空整行*/
+		printf_s(" ");
+	}
+	SetConsoleCursorPosition(handle_out, pos);
+	puts(buffer);
+	cci.bVisible = TRUE;
+	SetConsoleCursorPosition(handle_out, oldpos);
+	SetConsoleCursorInfo(handle_out, &cci);
+}
+
+/*****************************************************************
+* DESCRIPTION:
+*	创建一个新的行
+* INPUTS:
+*	buf - 输入缓冲区
+*	tail - 输入缓冲区结尾的序号的指针
+* OUTPUTS:
+*	none
+* RETURNS:
+*	none
+*****************************************************************/
+static void newLine(char *buf,INT32 *tail)
+{
+	memset(buf, '\0', INPUT_BUFFER_MAX_CHAR);
+	buf[0] = '>';
+	*tail = 1;
+	printf_s("\n>");
+}
+
+/*****************************************************************
+* DESCRIPTION:
+*	初始化socket
+* INPUTS:
+*	none
+* OUTPUTS:
+*	none
+* RETURNS:
+*	TRUE - 配置成功
+*****************************************************************/
+static INT32 socketInit(void)
+{
+	INT16 wVersion = MAKEWORD(2, 2);
+	WSADATA wsaData;
+	INT32 err = WSAStartup(wVersion, &wsaData);
+
+	if (err != 0)
+	{
+		printf("\nWSAStartup failed");
+		EXIT();
+	}
+	if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2)
+	{
+		printf("\ncould not find a usable version of Winsock.dll");
+		WSACleanup();
+		EXIT();
+	}
+	return TRUE;
+}
+
